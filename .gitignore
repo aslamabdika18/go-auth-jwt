@@ -1,0 +1,65 @@
+# =========================
+# Go
+# =========================
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Test / coverage artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace
+go.work
+go.work.sum
+
+
+# =========================
+# Environment / Secrets
+# =========================
+
+.env
+.env.*
+!.env.example
+
+
+# =========================
+# Build output
+# =========================
+
+/bin/
+/build/
+/dist/
+/tmp/
+
+
+# =========================
+# IDE / Editor
+# =========================
+
+.idea/
+.vscode/
+
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+
+# =========================
+# Air
+# =========================
+
+.air*
