@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/aslamabdika18/go-auth-jwt/internal/auth"
 	"github.com/aslamabdika18/go-auth-jwt/internal/config"
@@ -38,17 +39,25 @@ func main() {
 		cfg.JWTAccessTokenTTL,
 	)
 
+	refreshTokenTTL :=
+		time.Duration(
+			cfg.JWTRefreshTokenTTL,
+		) * time.Minute
+
 	userRepository := user.NewRepository(db)
 
 	userService := user.NewService(
 		userRepository,
 		jwtService,
+		refreshTokenTTL,
 	)
+
+	secureCookie := cfg.AppEnv == "production"
 
 	userHandler := user.NewHandler(
 		userService,
 		jwtService,
-		cfg.AppEnv == "production",
+		secureCookie,
 	)
 
 	app := router.New(
@@ -56,7 +65,10 @@ func main() {
 		jwtService,
 	)
 
-	log.Printf("server running on port %s", cfg.AppPort)
+	log.Printf(
+		"server running on port %s",
+		cfg.AppPort,
+	)
 
 	if err := app.Run(":" + cfg.AppPort); err != nil {
 		log.Fatal(err)

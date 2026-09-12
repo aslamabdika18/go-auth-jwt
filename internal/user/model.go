@@ -11,6 +11,14 @@ type User struct {
 	UpdatedAt    time.Time
 }
 
+type RefreshToken struct {
+	ID        int64
+	UserID    int
+	TokenHash string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
 type RegisterRequest struct {
 	Name     string `json:"name" binding:"required,min=3,max=100"`
 	Email    string `json:"email" binding:"required,email,max=255"`
@@ -29,7 +37,13 @@ type Response struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type LoginResponse struct {
-	User        Response
-	AccessToken string
+type LoginResult struct {
+	User         Response
+	AccessToken  string
+	RefreshToken string
+}
+
+type RefreshResult struct {
+	AccessToken  string
+	RefreshToken string
 }

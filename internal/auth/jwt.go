@@ -13,7 +13,10 @@ type JWT struct {
 	ttl       time.Duration
 }
 
-func NewJWT(secret string, ttlMinutes int) *JWT {
+func NewJWT(
+	secret string,
+	ttlMinutes int,
+) *JWT {
 	return &JWT{
 		secretKey: []byte(secret),
 		ttl:       time.Duration(ttlMinutes) * time.Minute,
@@ -42,7 +45,9 @@ func (j *JWT) GenerateAccessToken(userID int) (string, error) {
 	return signedToken, nil
 }
 
-func (j *JWT) ValidateAccessToken(tokenString string) (int, error) {
+func (j *JWT) ValidateAccessToken(
+	tokenString string,
+) (int, error) {
 	token, err := jwt.ParseWithClaims(
 		tokenString,
 		&jwt.RegisteredClaims{},

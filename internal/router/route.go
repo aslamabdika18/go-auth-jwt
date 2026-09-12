@@ -25,14 +25,32 @@ func New(
 
 	authRoutes := api.Group("/auth")
 	{
-		authRoutes.POST("/register", userHandler.Register)
-		authRoutes.POST("/login", userHandler.Login)
-		authRoutes.POST("/logout", userHandler.Logout)
+		authRoutes.POST(
+			"/register",
+			userHandler.Register,
+		)
+
+		authRoutes.POST(
+			"/login",
+			userHandler.Login,
+		)
+
+		authRoutes.POST(
+			"/refresh",
+			userHandler.Refresh,
+		)
+
+		authRoutes.POST(
+			"/logout",
+			userHandler.Logout,
+		)
+
 		authRoutes.GET(
 			"/me",
 			middleware.Auth(jwtService),
 			userHandler.Me,
 		)
 	}
+
 	return router
 }

@@ -20,8 +20,9 @@ type Config struct {
 	DBPassword string
 	DBSSLMode  string
 
-	JWTSecret         string
-	JWTAccessTokenTTL int
+	JWTSecret          string
+	JWTAccessTokenTTL  int
+	JWTRefreshTokenTTL int
 }
 
 func Load() (*Config, error) {
@@ -39,6 +40,16 @@ func Load() (*Config, error) {
 		)
 	}
 
+	jwtRefreshTokenTTL, err := strconv.Atoi(
+		os.Getenv("JWT_REFRESH_TOKEN_TTL"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"JWT_REFRESH_TOKEN_TTL must be a valid number: %w",
+			err,
+		)
+	}
+
 	cfg := &Config{
 		AppName: os.Getenv("APP_NAME"),
 		AppEnv:  os.Getenv("APP_ENV"),
@@ -51,8 +62,9 @@ func Load() (*Config, error) {
 		DBPassword: os.Getenv("DB_PASSWORD"),
 		DBSSLMode:  os.Getenv("DB_SSLMODE"),
 
-		JWTSecret:         os.Getenv("JWT_SECRET"),
-		JWTAccessTokenTTL: jwtAccessTokenTTL,
+		JWTSecret:          os.Getenv("JWT_SECRET"),
+		JWTAccessTokenTTL:  jwtAccessTokenTTL,
+		JWTRefreshTokenTTL: jwtRefreshTokenTTL,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -78,13 +90,22 @@ func (c *Config) Validate() error {
 
 	for key, value := range required {
 		if value == "" {
-			return fmt.Errorf("environment variable %s is required", key)
+			return fmt.Errorf(
+				"environment variable %s is required",
+				key,
+			)
 		}
 	}
 
 	if c.JWTAccessTokenTTL <= 0 {
 		return fmt.Errorf(
 			"JWT_ACCESS_TOKEN_TTL must be greater than 0",
+		)
+	}
+
+	if c.JWTRefreshTokenTTL <= 0 {
+		return fmt.Errorf(
+			"JWT_REFRESH_TOKEN_TTL must be greater than 0",
 		)
 	}
 

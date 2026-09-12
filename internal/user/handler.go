@@ -10,6 +10,11 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+const (
+	accessTokenCookie  = "access_token"
+	refreshTokenCookie = "refresh_token"
+)
+
 type Handler struct {
 	service      *Service
 	jwt          *auth.JWT
@@ -65,7 +70,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	response, err := h.service.Login(
+	result, err := h.service.Login(
 		c.Request.Context(),
 		request,
 	)
@@ -83,23 +88,67 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetSameSite(http.SameSiteLaxMode)
-
-	c.SetCookie(
-		"access_token",
-		response.AccessToken,
-		h.jwt.MaxAge(),
-		"/",
-		"",
-		h.secureCookie,
-		true,
+	h.setAccessTokenCookie(
+		c,
+		result.AccessToken,
 	)
 
-	c.JSON(http.StatusOK, response.User)
+	h.setRefreshTokenCookie(
+		c,
+		result.RefreshToken,
+	)
+
+	c.JSON(http.StatusOK, result.User)
+}
+
+func (h *Handler) Refresh(c *gin.Context) {
+	refreshToken, err := c.Cookie(refreshTokenCookie)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "refresh token required",
+		})
+		return
+	}
+
+	result, err := h.service.Refresh(
+		c.Request.Context(),
+		refreshToken,
+	)
+	if err != nil {
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			h.clearAuthCookies(c)
+
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid or expired refresh token",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
+		return
+	}
+
+	h.setAccessTokenCookie(
+		c,
+		result.AccessToken,
+	)
+
+	h.setRefreshTokenCookie(
+		c,
+		result.RefreshToken,
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "token refreshed successfully",
+	})
 }
 
 func (h *Handler) Me(c *gin.Context) {
-	userID := c.GetInt(middleware.UserIDKey)
+	userID := c.GetInt(
+		middleware.UserIDKey,
+	)
 
 	response, err := h.service.Me(
 		c.Request.Context(),
@@ -123,8 +172,70 @@ func (h *Handler) Me(c *gin.Context) {
 }
 
 func (h *Handler) Logout(c *gin.Context) {
+	refreshToken, _ := c.Cookie(
+		refreshTokenCookie,
+	)
+
+	if err := h.service.Logout(
+		c.Request.Context(),
+		refreshToken,
+	); err != nil {
+		h.clearAuthCookies(c)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
+		return
+	}
+
+	h.clearAuthCookies(c)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "logged out successfully",
+	})
+}
+
+func (h *Handler) setAccessTokenCookie(
+	c *gin.Context,
+	token string,
+) {
+	c.SetSameSite(http.SameSiteLaxMode)
+
 	c.SetCookie(
-		"access_token",
+		accessTokenCookie,
+		token,
+		h.jwt.MaxAge(),
+		"/",
+		"",
+		h.secureCookie,
+		true,
+	)
+}
+
+func (h *Handler) setRefreshTokenCookie(
+	c *gin.Context,
+	token string,
+) {
+	c.SetSameSite(http.SameSiteLaxMode)
+
+	c.SetCookie(
+		refreshTokenCookie,
+		token,
+		int(h.service.refreshTokenTTL.Seconds()),
+		"/api/v1/auth",
+		"",
+		h.secureCookie,
+		true,
+	)
+}
+
+func (h *Handler) clearAuthCookies(
+	c *gin.Context,
+) {
+	c.SetSameSite(http.SameSiteLaxMode)
+
+	c.SetCookie(
+		accessTokenCookie,
 		"",
 		-1,
 		"/",
@@ -133,9 +244,15 @@ func (h *Handler) Logout(c *gin.Context) {
 		true,
 	)
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "logged out successfully",
-	})
+	c.SetCookie(
+		refreshTokenCookie,
+		"",
+		-1,
+		"/api/v1/auth",
+		"",
+		h.secureCookie,
+		true,
+	)
 }
 
 func (h *Handler) handleValidationError(
@@ -150,13 +267,19 @@ func (h *Handler) handleValidationError(
 		for _, fieldError := range validationErrors {
 			switch fieldError.Field() {
 			case "Name":
-				fields["name"] = validationMessage(fieldError)
+				fields["name"] = validationMessage(
+					fieldError,
+				)
 
 			case "Email":
-				fields["email"] = validationMessage(fieldError)
+				fields["email"] = validationMessage(
+					fieldError,
+				)
 
 			case "Password":
-				fields["password"] = validationMessage(fieldError)
+				fields["password"] = validationMessage(
+					fieldError,
+				)
 			}
 		}
 
@@ -172,16 +295,22 @@ func (h *Handler) handleValidationError(
 	})
 }
 
-func validationMessage(fieldError validator.FieldError) string {
+func validationMessage(
+	fieldError validator.FieldError,
+) string {
 	switch fieldError.Tag() {
 	case "required":
 		return "this field is required"
 
 	case "min":
-		return "must be at least " + fieldError.Param() + " characters"
+		return "must be at least " +
+			fieldError.Param() +
+			" characters"
 
 	case "max":
-		return "must not exceed " + fieldError.Param() + " characters"
+		return "must not exceed " +
+			fieldError.Param() +
+			" characters"
 
 	case "email":
 		return "must be a valid email address"
