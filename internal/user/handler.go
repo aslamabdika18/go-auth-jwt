@@ -3,6 +3,7 @@ package user
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/aslamabdika18/go-auth-jwt/internal/auth"
 	"github.com/aslamabdika18/go-auth-jwt/internal/middleware"
@@ -88,15 +89,8 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	h.setAccessTokenCookie(
-		c,
-		result.AccessToken,
-	)
-
-	h.setRefreshTokenCookie(
-		c,
-		result.RefreshToken,
-	)
+	h.setAccessTokenCookie(c, result.AccessToken)
+	h.setRefreshTokenCookie(c, result.RefreshToken)
 
 	c.JSON(http.StatusOK, result.User)
 }
@@ -130,15 +124,8 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	h.setAccessTokenCookie(
-		c,
-		result.AccessToken,
-	)
-
-	h.setRefreshTokenCookie(
-		c,
-		result.RefreshToken,
-	)
+	h.setAccessTokenCookie(c, result.AccessToken)
+	h.setRefreshTokenCookie(c, result.RefreshToken)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "token refreshed successfully",
@@ -146,9 +133,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 }
 
 func (h *Handler) Me(c *gin.Context) {
-	userID := c.GetInt(
-		middleware.UserIDKey,
-	)
+	userID := c.GetInt(middleware.UserIDKey)
 
 	response, err := h.service.Me(
 		c.Request.Context(),
@@ -172,18 +157,23 @@ func (h *Handler) Me(c *gin.Context) {
 }
 
 func (h *Handler) Logout(c *gin.Context) {
-	refreshToken, _ := c.Cookie(
-		refreshTokenCookie,
-	)
+	userID := c.GetInt(middleware.UserIDKey)
+	sessionID := c.GetString(middleware.SessionIDKey)
+
+	if userID <= 0 || sessionID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "authentication required",
+		})
+		return
+	}
 
 	if err := h.service.Logout(
 		c.Request.Context(),
-		refreshToken,
+		sessionID,
+		userID,
 	); err != nil {
-		h.clearAuthCookies(c)
-
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "internal server error",
+			"error": "failed to logout",
 		})
 		return
 	}
@@ -192,6 +182,152 @@ func (h *Handler) Logout(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "logged out successfully",
+	})
+}
+
+func (h *Handler) ListUsers(c *gin.Context) {
+	page, err := queryInt(c, "page", 1)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "page must be a positive integer",
+		})
+		return
+	}
+
+	pageSize, err := queryInt(c, "page_size", 20)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "page_size must be an integer",
+		})
+		return
+	}
+
+	response, err := h.service.ListUsers(
+		c.Request.Context(),
+		page,
+		pageSize,
+	)
+	if err != nil {
+		if errors.Is(err, ErrInvalidPagination) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "page must be at least 1 and page_size must be between 1 and 100",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) GetUser(c *gin.Context) {
+	userID, ok := parseUserID(c)
+	if !ok {
+		return
+	}
+
+	response, err := h.service.GetUser(
+		c.Request.Context(),
+		userID,
+	)
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "user not found",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) UpdateUser(c *gin.Context) {
+	userID, ok := parseUserID(c)
+	if !ok {
+		return
+	}
+
+	var request UpdateUserRequest
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		h.handleValidationError(c, err)
+		return
+	}
+
+	response, err := h.service.UpdateUser(
+		c.Request.Context(),
+		userID,
+		request,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "user not found",
+			})
+
+		case errors.Is(err, ErrEmailAlreadyExists):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "email already exists",
+			})
+
+		case errors.Is(err, ErrSuperadminProtected):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "superadmin account is protected",
+			})
+
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "internal server error",
+			})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) DeleteUser(c *gin.Context) {
+	userID, ok := parseUserID(c)
+	if !ok {
+		return
+	}
+
+	if err := h.service.DeleteUser(
+		c.Request.Context(),
+		userID,
+	); err != nil {
+		switch {
+		case errors.Is(err, ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "user not found",
+			})
+
+		case errors.Is(err, ErrSuperadminProtected):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "superadmin account is protected",
+			})
+
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "internal server error",
+			})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "user deleted successfully",
 	})
 }
 
@@ -229,9 +365,7 @@ func (h *Handler) setRefreshTokenCookie(
 	)
 }
 
-func (h *Handler) clearAuthCookies(
-	c *gin.Context,
-) {
+func (h *Handler) clearAuthCookies(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
 
 	c.SetCookie(
@@ -267,19 +401,13 @@ func (h *Handler) handleValidationError(
 		for _, fieldError := range validationErrors {
 			switch fieldError.Field() {
 			case "Name":
-				fields["name"] = validationMessage(
-					fieldError,
-				)
+				fields["name"] = validationMessage(fieldError)
 
 			case "Email":
-				fields["email"] = validationMessage(
-					fieldError,
-				)
+				fields["email"] = validationMessage(fieldError)
 
 			case "Password":
-				fields["password"] = validationMessage(
-					fieldError,
-				)
+				fields["password"] = validationMessage(fieldError)
 			}
 		}
 
@@ -318,4 +446,29 @@ func validationMessage(
 	default:
 		return "invalid value"
 	}
+}
+
+func parseUserID(c *gin.Context) (int, bool) {
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userID < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid user id",
+		})
+		return 0, false
+	}
+
+	return userID, true
+}
+
+func queryInt(
+	c *gin.Context,
+	key string,
+	defaultValue int,
+) (int, error) {
+	value := c.Query(key)
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	return strconv.Atoi(value)
 }

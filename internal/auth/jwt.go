@@ -13,29 +13,42 @@ type JWT struct {
 	ttl       time.Duration
 }
 
-func NewJWT(
-	secret string,
-	ttlMinutes int,
-) *JWT {
+type AccessClaims struct {
+	SessionID string
+	UserID    int
+}
+
+func NewJWT(secret string, ttlMinutes int) *JWT {
 	return &JWT{
 		secretKey: []byte(secret),
 		ttl:       time.Duration(ttlMinutes) * time.Minute,
 	}
 }
 
-func (j *JWT) GenerateAccessToken(userID int) (string, error) {
+func (j *JWT) GenerateAccessToken(userID int, sessionID string) (string, error) {
+	if userID <= 0 {
+		return "", fmt.Errorf("invalid user ID")
+	}
+	if sessionID == "" {
+		return "", fmt.Errorf("session ID is required")
+	}
+	if len(j.secretKey) == 0 {
+		return "", fmt.Errorf("JWT secret is required")
+	}
+	if j.ttl <= 0 {
+		return "", fmt.Errorf("access token TTL must be positive")
+	}
+
 	now := time.Now()
 
 	claims := jwt.RegisteredClaims{
 		Subject:   strconv.Itoa(userID),
+		ID:        sessionID,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(j.ttl)),
 	}
 
-	token := jwt.NewWithClaims(
-		jwt.SigningMethodHS256,
-		claims,
-	)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	signedToken, err := token.SignedString(j.secretKey)
 	if err != nil {
@@ -45,42 +58,47 @@ func (j *JWT) GenerateAccessToken(userID int) (string, error) {
 	return signedToken, nil
 }
 
-func (j *JWT) ValidateAccessToken(
-	tokenString string,
-) (int, error) {
-	token, err := jwt.ParseWithClaims(
-		tokenString,
-		&jwt.RegisteredClaims{},
-		func(token *jwt.Token) (any, error) {
-			if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-				return nil, fmt.Errorf(
-					"unexpected signing method: %s",
-					token.Method.Alg(),
-				)
-			}
-
-			return j.secretKey, nil
-		},
-		jwt.WithValidMethods([]string{
-			jwt.SigningMethodHS256.Alg(),
-		}),
-	)
-
-	if err != nil {
-		return 0, fmt.Errorf("parse access token: %w", err)
+func (j *JWT) ValidateAccessToken(tokenString string) (*AccessClaims, error) {
+	if tokenString == "" {
+		return nil, fmt.Errorf("token is required")
+	}
+	if len(j.secretKey) == 0 {
+		return nil, fmt.Errorf("JWT secret is required")
 	}
 
-	claims, ok := token.Claims.(*jwt.RegisteredClaims)
-	if !ok {
-		return 0, fmt.Errorf("invalid token claims")
+	claims := &jwt.RegisteredClaims{}
+
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		claims,
+		func(token *jwt.Token) (any, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, fmt.Errorf("unexpected signing method: %s", token.Method.Alg())
+			}
+			return j.secretKey, nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("parse access token: %w", err)
+	}
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid access token")
 	}
 
 	userID, err := strconv.Atoi(claims.Subject)
-	if err != nil {
-		return 0, fmt.Errorf("parse user id: %w", err)
+	if err != nil || userID <= 0 {
+		return nil, fmt.Errorf("invalid user ID in token")
+	}
+	if claims.ID == "" {
+		return nil, fmt.Errorf("session ID missing from token")
 	}
 
-	return userID, nil
+	return &AccessClaims{
+		UserID:    userID,
+		SessionID: claims.ID,
+	}, nil
 }
 
 func (j *JWT) MaxAge() int {

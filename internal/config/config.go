@@ -23,10 +23,14 @@ type Config struct {
 	JWTSecret          string
 	JWTAccessTokenTTL  int
 	JWTRefreshTokenTTL int
+
+	InitialAdminName     string
+	InitialAdminEmail    string
+	InitialAdminPassword string
 }
 
 func Load() (*Config, error) {
-	if err := godotenv.Load(); err != nil {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("load .env: %w", err)
 	}
 
@@ -65,6 +69,10 @@ func Load() (*Config, error) {
 		JWTSecret:          os.Getenv("JWT_SECRET"),
 		JWTAccessTokenTTL:  jwtAccessTokenTTL,
 		JWTRefreshTokenTTL: jwtRefreshTokenTTL,
+
+		InitialAdminName:     os.Getenv("INITIAL_ADMIN_NAME"),
+		InitialAdminEmail:    os.Getenv("INITIAL_ADMIN_EMAIL"),
+		InitialAdminPassword: os.Getenv("INITIAL_ADMIN_PASSWORD"),
 	}
 
 	if err := cfg.Validate(); err != nil {

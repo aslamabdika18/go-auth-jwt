@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
 	"github.com/aslamabdika18/go-auth-jwt/internal/auth"
 	"github.com/aslamabdika18/go-auth-jwt/internal/config"
 	"github.com/aslamabdika18/go-auth-jwt/internal/database"
+	"github.com/aslamabdika18/go-auth-jwt/internal/rbac"
 	"github.com/aslamabdika18/go-auth-jwt/internal/router"
 	"github.com/aslamabdika18/go-auth-jwt/internal/user"
 	"github.com/gin-gonic/gin"
@@ -34,6 +36,14 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := database.SeedSuperadmin(
+		context.Background(),
+		db,
+		cfg,
+	); err != nil {
+		log.Fatal(err)
+	}
+
 	jwtService := auth.NewJWT(
 		cfg.JWTSecret,
 		cfg.JWTAccessTokenTTL,
@@ -60,9 +70,22 @@ func main() {
 		secureCookie,
 	)
 
+	rbacRepository := rbac.NewRepository(db)
+
+	rbacService := rbac.NewService(
+		rbacRepository,
+	)
+
+	rbacHandler := rbac.NewHandler(
+		rbacService,
+	)
+
 	app := router.New(
 		userHandler,
+		rbacHandler,
 		jwtService,
+		rbacService,
+		userService,
 	)
 
 	log.Printf(
